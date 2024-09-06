@@ -1,8 +1,12 @@
 import tkinter as tk
+from functools import partial
+from itertools import chain
 import uuid
 import os
 from dataclasses import dataclass
-from typing import Optional, TypeAlias
+
+from typing import TypeAlias
+
 Coordinate: TypeAlias = tuple[int, int]
 
 BASIC_PALETTE = [
@@ -18,11 +22,73 @@ BASIC_PALETTE = [
     "#3288bd",
     "#5e4fa2",
 ]
+
+class UnionFind:
+    def __init__(self) -> None:
+        self.data = {}
+        self.components = 0
+
+    def find(self, x):
+        if x not in self.data:
+            self.data[x] = x
+            self.components += 1
+        if self.data[x] != x:
+            self.data[x] = self.find(self.data[x])
+        return self.data[x]
+    def union(self, x, y,):
+        rx = self.find(x)
+        ry = self.find(y)
+        if rx != ry:
+            self.data[rx] = ry
+            self.components -= 1
+
+
 @dataclass
 class Level:
     solution: list[int]
     coloring: list[list[Coordinate]]
-    name: Optional[str] = None
+    name: str
+    solution_mode: bool = True
+
+    @property
+    def n(self) -> int:
+        return len(self.solution)
+
+    def click(self, row: int, col: int):
+        pass
+
+    def change_size(self, new_value: int):
+        pass
+
+    def change_mode(self):
+        pass
+
+
+def read_level_from_file(filepath: str) -> Level:
+    with open(filepath, "r") as fd:
+        solution = list(map(int, fd.readline().split()))
+        coloring = [[] for _ in range(len(solution))]
+        for row, line in enumerate(fd):
+            for col, color_idx in enumerate(map(int, line.split())):
+                assert color_idx < len(solution)
+                coloring[color_idx].append((row, col))
+        for row in coloring:
+            assert len(row) > 0
+        return Level(
+            solution=solution, coloring=coloring, name=os.path.basename(filepath)
+        )
+
+
+def write_level_to_folder(level: Level, folder_path: str) -> None:
+    with open(os.path.join(folder_path, level.name), "w") as fd:
+        rows = [level.solution]
+        other_rows = [[0] * len(level.solution) for _ in range(len(level.solution))]
+        for color in range(len(level.solution)):
+            for row, col in level.solution[color]:
+                other_rows[row][col] = color
+
+        fd.writelines((" ".join(map(str, r)) for r in chain(rows, other_rows)))
+
 
 def gen_colours(n: int) -> list[str]:
     assert len(BASIC_PALETTE) > 0
@@ -44,16 +110,7 @@ def load_levels() -> list[Level]:
         return []
     levels = []
     for fname in os.listdir(levels_folder):
-        with open(os.path.join(levels_folder, fname), "r") as fd:
-            solution = list(map(int, fd.readline().split()))
-            coloring = [[] for _ in range(len(solution))]
-            for row, line in enumerate(fd):
-                for col, color_idx in enumerate(map(int, line.split())):
-                    assert color_idx < len(solution)
-                    coloring[color_idx].append((row, col))
-            for row in coloring:
-                assert len(row) > 0
-            levels.append(Level(solution=solution, coloring=coloring, name=fname))
+        levels.append(read_level_from_file(os.path.join(levels_folder, fname)))
     return levels
 
 
@@ -66,49 +123,91 @@ def create_empty_level(n: int) -> Level:
             coloring[col].append((row, col))
     return Level(solution, coloring, str(uuid.uuid4()))
 
-
-def view_level(level: Level, menu_view: tk.Frame, board_view: tk.Frame) -> None:
+def reload_list_view(root: tk.Frame):
+    for x in root.children:
+        x.destroy()
+    text = tk.Text(root)
+    text.pack(side="left")
+    sb = tk.Scrollbar(root, command=text.yview)
+    sb.pack(side="right")
+    text.configure(yscrollcommand=sb.set)
+    for level in load_levels():
+        button = tk.Button(text, text=level.name)
+        text.window_create("end", window=button)
+        text.insert("end", "\n")
+    text.configure(state="disabled")
     pass
 
+def save_level(level: Level):
+    pass
 
-def view_levels(levels_view: tk.Frame, menu_view: tk.Frame, board_view: tk.Frame) -> None:
-    def handle_click(level: Level):
-        return view_level(level, menu_view, board_view)
+def delete_level(level: Level):
+    pass
 
-    for item in levels_view.winfo_children():
-        item.destroy()
-    for level in load_levels():
-        btn = tk.Button(text=level.name or "<untitled>", master=levels_view, width=50)
-        btn.bind(level, handle_click)
-        btn.pack()
+def change_size(level: Level, new_size: int):
+    pass
 
+def control_view(level: Level, menu_view: tk.Frame) -> None:
+    save_btn = tk.Button(menu_view, text="Save")
+    save_btn.bind("<Button-1>", partial(save_level, level=level))
+    save_btn.pack()
+    
+    delete_btn = tk.Button(menu_view, text="Delete")
+    save_btn.bind("<Button-1>", partial(delete_level, level=level))
+    delete_btn.pack()
+
+    scaler = tk.Scale(menu_view, from_=1, to=level.n)
+    scaler.set(level.n)
+    scaler.trace("w", lambda name, index, mode, sv=scaler, lvl=level: change_size(lvl, sv.get()))
+    scaler.pack()
+    pass
 
 def main() -> None:
-    window = tk.Tk()
+    __root = tk.Tk()
     tk.Label(text="Hello, basic window!")
-    c1, c2, c3 = gen_colours(3)
 
     # grid setup
-    split_top = tk.Frame(master=window)
-    split_top.pack(fill=tk.BOTH, expand=True)
-    split_bottom = tk.Frame(master=window)
-    split_bottom.pack(fill=tk.BOTH, expand=True)
+    __split_top = tk.Frame(master=__root)
+    __split_top.pack(fill=tk.BOTH, expand=True)
+    reload_list_view(__split_top)
+    __split_bottom = tk.Frame(master=__root)
+    __split_bottom.pack(fill=tk.BOTH, expand=True)
 
-    # levels list setup
-    levels_list = tk.Frame(master=split_top, name="existing_levels", bg=c1)
-    levels_list.pack(fill=tk.BOTH,  expand=True)
-
-    # view of the board
-    board_view = tk.Frame(master=split_bottom, name="board", bg=c2)
+    board_view = tk.Frame(master=__split_bottom, name="board")
     board_view.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
 
-    # control of the board
-    menu_view = tk.Frame(master=split_bottom, name="menu_view", bg=c3)
-    menu_view.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    def update_grid(level: Level) -> None:
+        n = len(level.solution)
+        colors = gen_colours(n)
+        _grid = [
+            [tk.Text(board_view, width=7,state=tk.DISABLED,foreground="black", heigh=7) for _ in range(n)] for _ in range(n)
+        ]
+        for color in range(n):
+            for row, col in level.coloring[color]:
+                _grid[row][col].config(bg = colors[color])
+                _grid[row][col].bind("<Button-1>", partial(lambda x, row, col: print((row, col)), row=row, col=col))
+                _grid[row][col].grid(row=row, column=col)
 
-    return window.mainloop()
+        for col, row in enumerate(level.solution):
+            _grid[row][col].config(state=tk.NORMAL)
+            _grid[row][col].insert(tk.END, "x")
+            _grid[row][col].config(state=tk.DISABLED)
+        return _grid
+    lvl = create_empty_level(5)
+    grid = update_grid(lvl)
+
+    return __root.mainloop()
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
+    # I am very silly here and do a lot of overcomplication
+
+    # Flow -> list levels from files
+    # - click level
+    # - view level
+    # - make changes
+    # - create stack of changes
+    # - validate changes all the time
+    # - ?save -> {update level from stack and save into file, remove stack, view level}
+    # - create level - autosave it and @view level:)
